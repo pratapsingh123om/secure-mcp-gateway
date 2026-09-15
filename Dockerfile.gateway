@@ -1,0 +1,20 @@
+FROM python:3.12.14-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --requirement /tmp/requirements.txt \
+    && addgroup --system gateway \
+    && adduser --system --ingroup gateway --home /app gateway
+
+COPY --chown=gateway:gateway backend ./backend
+COPY --chown=gateway:gateway manifests ./manifests
+COPY --chown=gateway:gateway scripts ./scripts
+RUN mkdir -p /var/lib/gateway && chown gateway:gateway /var/lib/gateway
+
+USER gateway
+EXPOSE 8000
+CMD ["sh", "-c", "test -f /var/lib/gateway/manifests.json || cp /app/manifests/approved.json /var/lib/gateway/manifests.json; exec python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers"]

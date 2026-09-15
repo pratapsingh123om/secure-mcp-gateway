@@ -1,0 +1,11 @@
+.git
+.gitignore
+venv
+.venv
+state
+frontend
+tests
+docs
+__pycache__
+*.pyc
+*.log

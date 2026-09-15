@@ -1,30 +1,136 @@
-version: '3.8'
+name: secure-mcp-gateway
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:size=32m,noexec,nosuid
+  restart: unless-stopped
+
+x-upstream: &upstream
+  <<: *hardened
+  build:
+    context: .
+    dockerfile: Dockerfile.upstream
+  environment:
+    MCP_HOST: 0.0.0.0
+  networks: [mcp_backplane]
+  deploy:
+    resources:
+      limits:
+        cpus: "0.50"
+        memory: 192M
+        pids: 128
 
 services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: mcp_user
-      POSTGRES_PASSWORD: mcp_password
-      POSTGRES_DB: mcp_gateway
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
   opa:
-    image: openpolicyagent/opa:latest
-    ports:
-      - "8181:8181"
-    command:
-      - "run"
-      - "--server"
-      - "--addr"
-      - ":8181"
-      - "--log-level=debug"
-      - "/policy"
+    <<: *hardened
+    image: openpolicyagent/opa:1.20.2-static
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "--log-level", "info", "/policy"]
     volumes:
-      - ./policy:/policy
+      - ./policy:/policy:ro
+    ports:
+      - "127.0.0.1:8181:8181"
+    networks: [mcp_backplane]
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+          pids: 128
+
+  crm:
+    <<: *upstream
+    command: ["python", "-m", "uvicorn", "synthetic-servers.crm:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      CRM_RESOURCE_URL: http://crm:8001/mcp
+      ALLOWED_HOSTS: crm:8001
+    expose: ["8001"]
+
+  hr:
+    <<: *upstream
+    command: ["python", "-m", "uvicorn", "synthetic-servers.hr:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      HR_RESOURCE_URL: http://hr:8002/mcp
+      ALLOWED_HOSTS: hr:8002
+    expose: ["8002"]
+
+  billing:
+    <<: *upstream
+    command: ["python", "-m", "uvicorn", "synthetic-servers.billing:app", "--host", "0.0.0.0", "--port", "8003"]
+    environment:
+      MCP_HOST: 0.0.0.0
+      BILLING_RESOURCE_URL: http://billing:8003/mcp
+      ALLOWED_HOSTS: billing:8003
+    expose: ["8003"]
+
+  gateway:
+    <<: *hardened
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    environment:
+      GATEWAY_ENV: development
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PUBLIC_URL: http://127.0.0.1:8000
+      DEV_AUTH_ENABLED: "true"
+      OPA_URL: http://opa:8181/v1/data/mcp/authz/decision
+      OPA_HEALTH_URL: http://opa:8181/health
+      UPSTREAM_URLS_JSON: '{"crm":"http://crm:8001/mcp","hr":"http://hr:8002/mcp","billing":"http://billing:8003/mcp"}'
+      AUDIT_PATH: /var/lib/gateway/audit.jsonl
+      APPROVALS_PATH: /var/lib/gateway/approvals.db
+      MANIFESTS_PATH: /var/lib/gateway/manifests.json
+      ALLOWED_HOSTS: 127.0.0.1:8000,localhost:8000,gateway:8000
+      ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+      OTEL_CONSOLE_EXPORTER: "true"
+    volumes:
+      - gateway_state:/var/lib/gateway
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks: [mcp_backplane, dashboard]
+    depends_on:
+      opa: {condition: service_healthy}
+      crm: {condition: service_started}
+      hr: {condition: service_started}
+      billing: {condition: service_started}
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 384M
+          pids: 128
+
+  dashboard:
+    <<: *hardened
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://127.0.0.1:8000
+    ports:
+      - "127.0.0.1:5173:8080"
+    networks: [dashboard]
+    depends_on:
+      gateway: {condition: service_started}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+          pids: 128
+
+networks:
+  mcp_backplane:
+    internal: true
+  dashboard: {}
 
 volumes:
-  pgdata:
+  gateway_state: {}

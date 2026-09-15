@@ -1,0 +1,14 @@
+FROM python:3.12.14-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+COPY synthetic-servers/requirements.txt /tmp/requirements.txt
+RUN pip install --requirement /tmp/requirements.txt \
+    && addgroup --system mcp \
+    && adduser --system --ingroup mcp --home /app mcp
+
+COPY --chown=mcp:mcp synthetic-servers ./synthetic-servers
+USER mcp

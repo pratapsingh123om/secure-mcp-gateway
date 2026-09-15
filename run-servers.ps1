@@ -1,15 +1,31 @@
 $ErrorActionPreference = "Stop"
 
-# Activate python environment
-. .\venv\Scripts\Activate.ps1
+Push-Location $PSScriptRoot
+try {
+    docker compose up -d --build
 
-Write-Host "Starting CRM Synthetic Server..."
-Start-Process "uvicorn" -ArgumentList "synthetic-servers.crm:app", "--port", "8001" -NoNewWindow
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/ready" -TimeoutSec 2 -SkipHttpErrorCheck
+            if ($response.StatusCode -eq 200) {
+                $ready = $true
+                break
+            }
+        } catch {
+            # Services are still starting.
+        }
+        Start-Sleep -Seconds 1
+    }
 
-Write-Host "Starting HR Synthetic Server..."
-Start-Process "uvicorn" -ArgumentList "synthetic-servers.hr:app", "--port", "8002" -NoNewWindow
+    if (-not $ready) {
+        docker compose logs --no-color gateway opa crm hr billing
+        throw "Gateway did not become ready within 60 seconds."
+    }
 
-Write-Host "Starting Gateway..."
-Start-Process "uvicorn" -ArgumentList "backend.main:app", "--port", "8000" -NoNewWindow
-
-Write-Host "All servers started!"
+    Write-Host "Gateway ready:  http://127.0.0.1:8000/ready"
+    Write-Host "MCP endpoint:   http://127.0.0.1:8000/mcp"
+    Write-Host "Dashboard:      http://127.0.0.1:5173"
+} finally {
+    Pop-Location
+}

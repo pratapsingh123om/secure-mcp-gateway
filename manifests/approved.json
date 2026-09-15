@@ -1,0 +1,167 @@
+{
+  "upstreams": {
+    "billing": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Delete one invoice belonging to the credential-bound tenant.",
+          "inputSchema": {
+            "properties": {
+              "invoice_id": {
+                "title": "Invoice Id",
+                "type": "string"
+              },
+              "tenant_id": {
+                "title": "Tenant Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "invoice_id",
+              "tenant_id"
+            ],
+            "title": "billing_delete_invoiceArguments",
+            "type": "object"
+          },
+          "name": "billing_delete_invoice",
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "billing_delete_invoiceOutput",
+            "type": "object"
+          }
+        },
+        {
+          "annotations": null,
+          "description": "Return one invoice belonging to the credential-bound tenant.",
+          "inputSchema": {
+            "properties": {
+              "invoice_id": {
+                "title": "Invoice Id",
+                "type": "string"
+              },
+              "tenant_id": {
+                "title": "Tenant Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "invoice_id",
+              "tenant_id"
+            ],
+            "title": "billing_get_invoiceArguments",
+            "type": "object"
+          },
+          "name": "billing_get_invoice",
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "billing_get_invoiceOutput",
+            "type": "object"
+          }
+        }
+      ],
+      "hash": "94b63cf5996357710188cc67a7b91d58830f42124c10b7b17da1b90be0da4df3"
+    },
+    "crm": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Return exactly one CRM client belonging to the credential-bound tenant.",
+          "inputSchema": {
+            "properties": {
+              "client_id": {
+                "title": "Client Id",
+                "type": "string"
+              },
+              "tenant_id": {
+                "title": "Tenant Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "client_id",
+              "tenant_id"
+            ],
+            "title": "crm_get_clientArguments",
+            "type": "object"
+          },
+          "name": "crm_get_client",
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "crm_get_clientOutput",
+            "type": "object"
+          }
+        }
+      ],
+      "hash": "8e62ed27e5c1dbc791cb7b926b12e64517b162f5a3cfdcdb103c1dbd502f7c27"
+    },
+    "hr": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Return one salary record belonging to the credential-bound tenant.",
+          "inputSchema": {
+            "properties": {
+              "employee_id": {
+                "title": "Employee Id",
+                "type": "string"
+              },
+              "tenant_id": {
+                "title": "Tenant Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "employee_id",
+              "tenant_id"
+            ],
+            "title": "hr_get_salaryArguments",
+            "type": "object"
+          },
+          "name": "hr_get_salary",
+          "outputSchema": {
+            "properties": {
+              "result": {
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "title": "hr_get_salaryOutput",
+            "type": "object"
+          }
+        }
+      ],
+      "hash": "a4bf0b4677635fd673867c3d36eeded3f1296f593dd262259eb20c8cc066323f"
+    }
+  },
+  "version": 1
+}

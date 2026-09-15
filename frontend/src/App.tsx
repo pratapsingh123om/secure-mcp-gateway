@@ -1,181 +1,240 @@
-import { useState, FormEvent } from 'react';
-import { ShieldCheck, Database, Lock, EyeOff, Activity, Code, Server, ArrowRight } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import {
+  Activity,
+  BadgeCheck,
+  Check,
+  CircleAlert,
+  Clock3,
+  FileClock,
+  Fingerprint,
+  KeyRound,
+  LockKeyhole,
+  RefreshCw,
+  ShieldCheck,
+  Siren,
+  Waypoints,
+} from 'lucide-react';
+
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+
+type ProfileKey = 'crm' | 'hr' | 'finance' | 'admin';
+type Profile = { label: string; subject: string; roles: string[]; scopes: string[] };
+type Ready = {
+  status: string;
+  checks: { policy_engine: boolean; audit_chain: { valid: boolean; detail: string }; manifests: Record<string, string> };
+};
+type Tool = { name: string; description: string; upstream: string; risk: string; operation: string };
+type Manifest = { upstream: string; status: string; current_hash?: string; suspicious_descriptions?: string[] };
+type Approval = { id: string; tool_name: string; resource_id: string; status: string; requested_at: number; expires_at: number };
+type AuditEvent = {
+  event_id: string;
+  timestamp: string;
+  tool: string;
+  decision: string;
+  result: string;
+  principal_id: string;
+  event_hash: string;
+};
+
+const profiles: Record<ProfileKey, Profile> = {
+  crm: { label: 'CRM viewer', subject: 'alice', roles: ['crm-viewer'], scopes: ['mcp:tools', 'control:read'] },
+  hr: { label: 'HR viewer', subject: 'carol', roles: ['hr-viewer'], scopes: ['mcp:tools', 'control:read'] },
+  finance: {
+    label: 'Finance admin',
+    subject: 'finley',
+    roles: ['finance-admin'],
+    scopes: ['mcp:tools', 'control:read'],
+  },
+  admin: {
+    label: 'Security admin',
+    subject: 'security-admin',
+    roles: ['admin', 'approver', 'auditor'],
+    scopes: ['mcp:tools', 'control:read', 'approval:write', 'manifest:write', 'audit:read'],
+  },
+};
+
+async function api<T>(path: string, token?: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`${response.status}: ${body}`);
+  }
+  return response.json() as Promise<T>;
+}
 
 function App() {
-  const [dbConfig, setDbConfig] = useState({
-    host: '',
-    port: '5432',
-    user: '',
-    password: '',
-    dbname: ''
-  });
-  
-  const [connStatus, setConnStatus] = useState<'idle' | 'connecting' | 'success' | 'error'>('idle');
+  const [tenant, setTenant] = useState('acme');
+  const [profileKey, setProfileKey] = useState<ProfileKey>('admin');
+  const [token, setToken] = useState('');
+  const [ready, setReady] = useState<Ready | null>(null);
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [manifests, setManifests] = useState<Manifest[]>([]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleConnect = async (e: FormEvent) => {
-    e.preventDefault();
-    setConnStatus('connecting');
-    // Simulate connection delay
-    setTimeout(() => {
-      if (dbConfig.host && dbConfig.user && dbConfig.password) {
-        setConnStatus('success');
+  const profile = profiles[profileKey];
+  const canApprove = profile.scopes.includes('approval:write');
+  const canAudit = profile.scopes.includes('audit:read');
+
+  const refresh = useCallback(async (activeToken: string) => {
+    setLoading(true);
+    setError('');
+    try {
+      const [nextReady, nextTools, nextManifests] = await Promise.all([
+        api<Ready>('/ready').catch((reason: Error) => {
+          const detail = reason.message.match(/\{.*\}$/)?.[0];
+          return detail ? (JSON.parse(detail) as Ready) : Promise.reject(reason);
+        }),
+        api<Tool[]>('/v1/tools', activeToken),
+        api<Manifest[]>('/v1/tool-manifests', activeToken),
+      ]);
+      setReady(nextReady);
+      setTools(nextTools);
+      setManifests(nextManifests);
+
+      if (canApprove) {
+        setApprovals(await api<Approval[]>('/v1/approvals', activeToken));
       } else {
-        setConnStatus('error');
+        setApprovals([]);
       }
-    }, 1500);
+      if (canAudit) {
+        setEvents(await api<AuditEvent[]>('/v1/audit/events?limit=25', activeToken));
+      } else {
+        setEvents([]);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to load the gateway control plane');
+    } finally {
+      setLoading(false);
+    }
+  }, [canApprove, canAudit]);
+
+  const signIn = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api<{ access_token: string }>('/dev/token', undefined, {
+        method: 'POST',
+        body: JSON.stringify({
+          subject: profile.subject,
+          tenant_id: tenant,
+          roles: profile.roles,
+          scopes: profile.scopes,
+          agent_id: `${profileKey}-dashboard`,
+        }),
+      });
+      setToken(response.access_token);
+      await refresh(response.access_token);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Development sign-in failed');
+      setLoading(false);
+    }
   };
 
+  const approve = async (approvalId: string) => {
+    if (!token) return;
+    setError('');
+    try {
+      await api(`/v1/approvals/${approvalId}/approve`, token, { method: 'POST' });
+      await refresh(token);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Approval failed');
+    }
+  };
+
+  const summary = useMemo(() => {
+    const trusted = manifests.filter((manifest) => manifest.status.startsWith('TRUSTED')).length;
+    return { trusted, pending: approvals.filter((approval) => approval.status === 'PENDING').length };
+  }, [approvals, manifests]);
+
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
-      
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="h-8 w-8 text-indigo-600" />
-              <span className="font-bold text-xl tracking-tight text-gray-900">Zero-Trust MCP</span>
-            </div>
-            <div className="flex space-x-4">
-              <a href="#features" className="text-gray-600 hover:text-indigo-600 px-3 py-2 text-sm font-medium transition-colors">Features</a>
-              <a href="#connect" className="text-gray-600 hover:text-indigo-600 px-3 py-2 text-sm font-medium transition-colors">Connect DB</a>
-            </div>
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand"><ShieldCheck size={28} /><span>Zero-Trust MCP</span></div>
+        <div className="endpoint"><span className="pulse" />{API_BASE}/mcp</div>
+      </header>
+
+      <main>
+        <section className="hero-panel">
+          <div>
+            <p className="eyebrow">Agent control plane</p>
+            <h1>Every tool call earns its way through.</h1>
+            <p className="hero-copy">Verified identity, tenant-scoped credentials, OPA policy, DLP, approvals, manifest integrity, and tamper-evident audit—before data reaches an agent.</p>
           </div>
-        </div>
-      </nav>
+          <form className="identity-card" onSubmit={signIn}>
+            <div className="identity-title"><Fingerprint size={19} /> Development identity</div>
+            <label>Tenant<select value={tenant} onChange={(event) => setTenant(event.target.value)}><option value="acme">Acme</option><option value="globex">Globex</option></select></label>
+            <label>Role profile<select value={profileKey} onChange={(event) => setProfileKey(event.target.value as ProfileKey)}>{Object.entries(profiles).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
+            <button disabled={loading} type="submit"><KeyRound size={17} /> {token ? 'Switch identity' : 'Issue audience-bound token'}</button>
+            <small>Development only. Production mode requires an external OIDC issuer and disables this endpoint.</small>
+          </form>
+        </section>
 
-      {/* Hero Section */}
-      <div className="bg-indigo-900 text-white py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center text-center">
-          <h1 className="text-5xl font-extrabold tracking-tight mb-6 leading-tight">
-            Enterprise Security for AI Agents
-          </h1>
-          <p className="text-xl max-w-3xl text-indigo-200 mb-10 leading-relaxed">
-            A protocol-aware reverse proxy that mediates tool discovery and execution. We enforce identity, tenant isolation, Open Policy Agent (OPA) rules, and Data Loss Prevention (DLP) natively—so your LLMs can't leak data.
-          </p>
-          <div className="flex space-x-4">
-            <a href="#connect" className="bg-white text-indigo-900 px-8 py-3 rounded-lg font-bold shadow hover:bg-gray-100 transition flex items-center space-x-2">
-              <span>Connect Database</span>
-              <ArrowRight className="h-5 w-5" />
-            </a>
-            <a href="#features" className="border border-indigo-400 text-indigo-100 px-8 py-3 rounded-lg font-bold hover:bg-indigo-800 transition">
-              Explore Architecture
-            </a>
-          </div>
-        </div>
-      </div>
+        {error && <div className="error-banner"><CircleAlert size={18} />{error}</div>}
 
-      {/* Features Section */}
-      <div id="features" className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-gray-900">Why a Gateway?</h2>
-            <p className="mt-4 text-lg text-gray-600 max-w-2xl mx-auto">
-              Connecting agents directly to databases is a security nightmare. Our gateway sits between the agent and your data, ensuring determinism.
-            </p>
-          </div>
+        {!token ? (
+          <section className="empty-state"><LockKeyhole size={34} /><h2>Authenticate to inspect the tenant control plane</h2><p>Tokens remain in memory and are never written to browser storage.</p></section>
+        ) : (
+          <>
+            <section className="summary-grid">
+              <Stat icon={<Activity />} label="Gateway" value={ready?.status || 'checking'} tone={ready?.status === 'ready' ? 'good' : 'warn'} />
+              <Stat icon={<ShieldCheck />} label="OPA policy" value={ready?.checks.policy_engine ? 'healthy' : 'unavailable'} tone={ready?.checks.policy_engine ? 'good' : 'bad'} />
+              <Stat icon={<BadgeCheck />} label="Trusted manifests" value={`${summary.trusted}/${manifests.length}`} tone={summary.trusted === manifests.length ? 'good' : 'bad'} />
+              <Stat icon={<Clock3 />} label="Pending approvals" value={String(summary.pending)} tone={summary.pending ? 'warn' : 'neutral'} />
+            </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <FeatureCard 
-              icon={<Lock className="h-10 w-10 text-indigo-600" />}
-              title="Policy-as-Code (OPA)"
-              description="Authorization is independent of the LLM. Rego policies enforce RBAC, ABAC, and human-in-the-loop approvals."
-            />
-            <FeatureCard 
-              icon={<EyeOff className="h-10 w-10 text-indigo-600" />}
-              title="Data Loss Prevention"
-              description="Redact PII, API Keys, and SSNs before they cross trust boundaries using advanced regex and semantic scanners."
-            />
-            <FeatureCard 
-              icon={<Server className="h-10 w-10 text-indigo-600" />}
-              title="Tenant Isolation"
-              description="Every principal resolves to exactly one tenant. Resources, quotas, and cache keys are strictly partitioned."
-            />
-          </div>
-        </div>
-      </div>
+            <div className="section-heading"><div><p className="eyebrow">Least privilege</p><h2>Visible tools for {profile.label}</h2></div><button className="secondary" onClick={() => void refresh(token)} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} /> Refresh</button></div>
+            <section className="tool-grid">
+              {tools.map((tool) => <article className="tool-card" key={tool.name}><div className="tool-top"><Waypoints size={19} /><span className={`risk ${tool.risk}`}>{tool.risk}</span></div><h3>{tool.name}</h3><p>{tool.description}</p><footer><span>{tool.upstream}</span><span>{tool.operation}</span></footer></article>)}
+              {!tools.length && <div className="inline-empty">No tools are authorized for this identity.</div>}
+            </section>
 
-      {/* Database Connection Section */}
-      <div id="connect" className="py-20 bg-gray-50">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-          
-          <div className="md:w-1/2 bg-indigo-600 p-10 text-white flex flex-col justify-center">
-            <Database className="h-16 w-16 mb-6 text-indigo-200" />
-            <h3 className="text-3xl font-bold mb-4">Connect Your Database</h3>
-            <p className="text-indigo-100 mb-6">
-              Link your PostgreSQL database to automatically generate secure MCP tools. We'll deploy an isolated synthetic server mapped to your schema.
-            </p>
-            <ul className="space-y-3">
-              <li className="flex items-center space-x-3"><Activity className="h-5 w-5 text-indigo-300"/> <span>Real-time OPA enforcement</span></li>
-              <li className="flex items-center space-x-3"><Code className="h-5 w-5 text-indigo-300"/> <span>Auto-generated JSON-RPC schemas</span></li>
-              <li className="flex items-center space-x-3"><ShieldCheck className="h-5 w-5 text-indigo-300"/> <span>Built-in secret scrubbing</span></li>
-            </ul>
-          </div>
+            <section className="two-column">
+              <Panel title="Upstream integrity" icon={<Siren size={19} />}>
+                {manifests.map((manifest) => <div className="row" key={manifest.upstream}><div><strong>{manifest.upstream}</strong><small>{manifest.current_hash?.slice(0, 16) || 'unavailable'}</small></div><Status value={manifest.status} /></div>)}
+              </Panel>
+              <Panel title="Human approvals" icon={<Check size={19} />}>
+                {!canApprove && <p className="muted">Switch to Security admin to inspect and approve tenant requests.</p>}
+                {canApprove && !approvals.length && <p className="muted">No approval requests for this tenant.</p>}
+                {approvals.slice(0, 8).map((approval) => <div className="row" key={approval.id}><div><strong>{approval.tool_name}</strong><small>{approval.resource_id} · {approval.status}</small></div>{approval.status === 'PENDING' ? <button className="compact" onClick={() => void approve(approval.id)}>Approve</button> : <Status value={approval.status} />}</div>)}
+              </Panel>
+            </section>
 
-          <div className="md:w-1/2 p-10">
-            <form onSubmit={handleConnect} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Host</label>
-                <input required type="text" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900" placeholder="db.example.com" value={dbConfig.host} onChange={e => setDbConfig({...dbConfig, host: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
-                <input required type="text" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900" placeholder="5432" value={dbConfig.port} onChange={e => setDbConfig({...dbConfig, port: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Database Name</label>
-                <input required type="text" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900" placeholder="postgres" value={dbConfig.dbname} onChange={e => setDbConfig({...dbConfig, dbname: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
-                  <input required type="text" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900" placeholder="admin" value={dbConfig.user} onChange={e => setDbConfig({...dbConfig, user: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                  <input required type="password" className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900" placeholder="••••••••" value={dbConfig.password} onChange={e => setDbConfig({...dbConfig, password: e.target.value})} />
-                </div>
-              </div>
-              
-              <button 
-                type="submit" 
-                disabled={connStatus === 'connecting'}
-                className="w-full mt-6 bg-indigo-600 text-white font-bold py-3 px-4 rounded-md hover:bg-indigo-700 transition disabled:opacity-70 flex justify-center items-center"
-              >
-                {connStatus === 'connecting' ? 'Connecting...' : 'Securely Connect Database'}
-              </button>
-
-              {connStatus === 'success' && (
-                <div className="mt-4 p-4 bg-green-50 text-green-800 rounded-md text-sm border border-green-200">
-                  <span className="font-bold">Success!</span> Database connected. Your MCP endpoints have been provisioned under tenant isolation.
-                </div>
-              )}
-              {connStatus === 'error' && (
-                <div className="mt-4 p-4 bg-red-50 text-red-800 rounded-md text-sm border border-red-200">
-                  <span className="font-bold">Connection Failed.</span> Please check your credentials or network configuration.
-                </div>
-              )}
-            </form>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <footer className="bg-gray-900 text-gray-400 py-10 text-center">
-        <p>© 2026 Zero-Trust MCP Gateway. Built for Enterprise Agentic AI.</p>
-      </footer>
+            <Panel title="Tamper-evident audit" icon={<FileClock size={19} />}>
+              {!canAudit && <p className="muted">Audit events require the auditor role and audit:read scope.</p>}
+              {canAudit && !events.length && <p className="muted">No events recorded for this tenant yet.</p>}
+              {events.slice().reverse().map((event) => <div className="audit-row" key={event.event_id}><time>{new Date(event.timestamp).toLocaleTimeString()}</time><strong>{event.tool}</strong><Status value={event.decision} /><span>{event.result}</span><code>{event.event_hash.slice(0, 12)}</code></div>)}
+            </Panel>
+          </>
+        )}
+      </main>
     </div>
   );
 }
 
-function FeatureCard({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
-  return (
-    <div className="p-8 rounded-xl bg-gray-50 border border-gray-100 hover:shadow-lg transition-shadow">
-      <div className="mb-5 inline-block p-3 bg-white rounded-lg shadow-sm border border-gray-100">{icon}</div>
-      <h3 className="text-xl font-bold text-gray-900 mb-3">{title}</h3>
-      <p className="text-gray-600 leading-relaxed">{description}</p>
-    </div>
-  );
+function Stat({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string; tone: string }) {
+  return <article className={`stat ${tone}`}><div>{icon}</div><span>{label}</span><strong>{value}</strong></article>;
+}
+
+function Panel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+  return <section className="panel"><header>{icon}<h2>{title}</h2></header><div>{children}</div></section>;
+}
+
+function Status({ value }: { value: string }) {
+  const good = value === 'ALLOW' || value === 'APPROVED' || value === 'CONSUMED' || value.startsWith('TRUSTED');
+  const warning = value === 'PENDING' || value === 'REQUIRE_APPROVAL';
+  return <span className={`status ${good ? 'good' : warning ? 'warn' : 'bad'}`}>{value}</span>;
 }
 
 export default App;
