@@ -161,59 +161,65 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><ShieldCheck size={28} /><span>Zero-Trust MCP</span></div>
+        <div className="brand"><ShieldCheck size={28} /><span>Secure AI Gateway</span></div>
         <div className="endpoint"><span className="pulse" />{API_BASE}/mcp</div>
       </header>
 
       <main>
         <section className="hero-panel">
           <div>
-            <p className="eyebrow">Agent control plane</p>
-            <h1>Every tool call earns its way through.</h1>
-            <p className="hero-copy">Verified identity, tenant-scoped credentials, OPA policy, DLP, approvals, manifest integrity, and tamper-evident audit—before data reaches an agent.</p>
+            <p className="eyebrow">Enterprise Security</p>
+            <h1>Protect your company data from AI agents.</h1>
+            <p className="hero-copy">
+              Our gateway acts as a firewall between external AI models and your internal APIs. 
+              It enforces strict access rules, automatically redacts sensitive data (like SSNs), and stops unauthorized actions before they happen.
+            </p>
           </div>
           <form className="identity-card" onSubmit={signIn}>
-            <div className="identity-title"><Fingerprint size={19} /> Development identity</div>
-            <label>Tenant<select value={tenant} onChange={(event) => setTenant(event.target.value)}><option value="acme">Acme</option><option value="globex">Globex</option></select></label>
-            <label>Role profile<select value={profileKey} onChange={(event) => setProfileKey(event.target.value as ProfileKey)}>{Object.entries(profiles).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
-            <button disabled={loading} type="submit"><KeyRound size={17} /> {token ? 'Switch identity' : 'Issue audience-bound token'}</button>
-            <small>Development only. Production mode requires an external OIDC issuer and disables this endpoint.</small>
+            <div className="identity-title"><Fingerprint size={20} /> Simulate User Role</div>
+            <p className="muted" style={{ margin: '0 0 16px', fontSize: '13px', paddingTop: 0 }}>
+              See what different employees can access.
+            </p>
+            <label>Company/Tenant<select value={tenant} onChange={(event) => setTenant(event.target.value)}><option value="acme">Acme</option><option value="globex">Globex</option></select></label>
+            <label>Employee Role<select value={profileKey} onChange={(event) => setProfileKey(event.target.value as ProfileKey)}>{Object.entries(profiles).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
+            <button disabled={loading} type="submit"><KeyRound size={17} /> {token ? 'Switch Employee' : 'Login to Dashboard'}</button>
+            <small>This is a simulated demo environment.</small>
           </form>
         </section>
 
         {error && <div className="error-banner"><CircleAlert size={18} />{error}</div>}
 
         {!token ? (
-          <section className="empty-state"><LockKeyhole size={34} /><h2>Authenticate to inspect the tenant control plane</h2><p>Tokens remain in memory and are never written to browser storage.</p></section>
+          <section className="empty-state"><LockKeyhole size={34} /><h2>Log in to view the security dashboard</h2><p>Select an employee role above to see what capabilities and data they have access to.</p></section>
         ) : (
           <>
             <section className="summary-grid">
-              <Stat icon={<Activity />} label="Gateway" value={ready?.status || 'checking'} tone={ready?.status === 'ready' ? 'good' : 'warn'} />
-              <Stat icon={<ShieldCheck />} label="OPA policy" value={ready?.checks.policy_engine ? 'healthy' : 'unavailable'} tone={ready?.checks.policy_engine ? 'good' : 'bad'} />
-              <Stat icon={<BadgeCheck />} label="Trusted manifests" value={`${summary.trusted}/${manifests.length}`} tone={summary.trusted === manifests.length ? 'good' : 'bad'} />
-              <Stat icon={<Clock3 />} label="Pending approvals" value={String(summary.pending)} tone={summary.pending ? 'warn' : 'neutral'} />
+              <Stat icon={<Activity />} label="Gateway Status" value={ready?.status === 'ready' ? 'Online' : 'Checking'} tone={ready?.status === 'ready' ? 'good' : 'warn'} />
+              <Stat icon={<ShieldCheck />} label="Policy Engine" value={ready?.checks.policy_engine ? 'Active' : 'Offline'} tone={ready?.checks.policy_engine ? 'good' : 'bad'} />
+              <Stat icon={<BadgeCheck />} label="Verified APIs" value={`${summary.trusted}/${manifests.length}`} tone={summary.trusted === manifests.length ? 'good' : 'bad'} />
+              <Stat icon={<Clock3 />} label="Needs Review" value={String(summary.pending)} tone={summary.pending ? 'warn' : 'neutral'} />
             </section>
 
-            <div className="section-heading"><div><p className="eyebrow">Least privilege</p><h2>Visible tools for {profile.label}</h2></div><button className="secondary" onClick={() => void refresh(token)} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} /> Refresh</button></div>
+            <div className="section-heading"><div><p className="eyebrow">Access Control</p><h2>AI Capabilities available to {profile.label}</h2></div><button className="secondary" onClick={() => void refresh(token)} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} /> Refresh</button></div>
             <section className="tool-grid">
               {tools.map((tool) => <article className="tool-card" key={tool.name}><div className="tool-top"><Waypoints size={19} /><span className={`risk ${tool.risk}`}>{tool.risk}</span></div><h3>{tool.name}</h3><p>{tool.description}</p><footer><span>{tool.upstream}</span><span>{tool.operation}</span></footer></article>)}
-              {!tools.length && <div className="inline-empty">No tools are authorized for this identity.</div>}
+              {!tools.length && <div className="inline-empty">No tools are authorized for this employee.</div>}
             </section>
 
             <section className="two-column">
-              <Panel title="Upstream integrity" icon={<Siren size={19} />}>
-                {manifests.map((manifest) => <div className="row" key={manifest.upstream}><div><strong>{manifest.upstream}</strong><small>{manifest.current_hash?.slice(0, 16) || 'unavailable'}</small></div><Status value={manifest.status} /></div>)}
+              <Panel title="API Integrations" icon={<Siren size={19} />}>
+                {manifests.map((manifest) => <div className="row" key={manifest.upstream}><div><strong>{manifest.upstream}</strong><small>Version hash: {manifest.current_hash?.slice(0, 16) || 'unavailable'}</small></div><Status value={manifest.status} /></div>)}
               </Panel>
-              <Panel title="Human approvals" icon={<Check size={19} />}>
-                {!canApprove && <p className="muted">Switch to Security admin to inspect and approve tenant requests.</p>}
-                {canApprove && !approvals.length && <p className="muted">No approval requests for this tenant.</p>}
-                {approvals.slice(0, 8).map((approval) => <div className="row" key={approval.id}><div><strong>{approval.tool_name}</strong><small>{approval.resource_id} · {approval.status}</small></div>{approval.status === 'PENDING' ? <button className="compact" onClick={() => void approve(approval.id)}>Approve</button> : <Status value={approval.status} />}</div>)}
+              <Panel title="Pending Approvals" icon={<Check size={19} />}>
+                {!canApprove && <p className="muted">Only Security Admins can review and approve high-risk AI actions.</p>}
+                {canApprove && !approvals.length && <p className="muted">No actions currently require human approval.</p>}
+                {approvals.slice(0, 8).map((approval) => <div className="row" key={approval.id}><div><strong>{approval.tool_name}</strong><small>{approval.resource_id}</small></div>{approval.status === 'PENDING' ? <button className="compact" onClick={() => void approve(approval.id)}>Approve</button> : <Status value={approval.status} />}</div>)}
               </Panel>
             </section>
 
-            <Panel title="Tamper-evident audit" icon={<FileClock size={19} />}>
-              {!canAudit && <p className="muted">Audit events require the auditor role and audit:read scope.</p>}
-              {canAudit && !events.length && <p className="muted">No events recorded for this tenant yet.</p>}
+            <Panel title="Security Logs" icon={<FileClock size={19} />}>
+              {!canAudit && <p className="muted">Security logs are only visible to auditors or admins.</p>}
+              {canAudit && !events.length && <p className="muted">No security events recorded yet.</p>}
               {events.slice().reverse().map((event) => <div className="audit-row" key={event.event_id}><time>{new Date(event.timestamp).toLocaleTimeString()}</time><strong>{event.tool}</strong><Status value={event.decision} /><span>{event.result}</span><code>{event.event_hash.slice(0, 12)}</code></div>)}
             </Panel>
           </>

@@ -1,0 +1,20 @@
+{
+  "upstreams": {
+    "crm": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Read a record",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "read",
+          "outputSchema": null
+        }
+      ],
+      "hash": "ea8ab1ad7a7b1427bd88d49694bda94277bba2fea490e76ee9c3f239895a7ac7"
+    }
+  },
+  "version": 1
+}

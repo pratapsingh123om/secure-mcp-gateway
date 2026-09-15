@@ -1,0 +1,59 @@
+{
+  "upstreams": {
+    "billing": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Tenant invoice delete",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "billing_delete_invoice",
+          "outputSchema": null
+        },
+        {
+          "annotations": null,
+          "description": "Tenant invoice read",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "billing_get_invoice",
+          "outputSchema": null
+        }
+      ],
+      "hash": "f17a852c087bf3984af8add51b87eedf7af3811e87d17e45857f74271ea292fb"
+    },
+    "crm": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Tenant CRM read",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "crm_get_client",
+          "outputSchema": null
+        }
+      ],
+      "hash": "903e03b86e458a0b2a14f37c0b207d9e9937ce6a8e1916666cf738e100e1f54a"
+    },
+    "hr": {
+      "allow_suspicious": false,
+      "catalog": [
+        {
+          "annotations": null,
+          "description": "Tenant salary read",
+          "inputSchema": {
+            "type": "object"
+          },
+          "name": "hr_get_salary",
+          "outputSchema": null
+        }
+      ],
+      "hash": "b6360eb32ba212576d629bc0b5e363e3f91f6f5f353817f2656e13d476aff3cb"
+    }
+  },
+  "version": 1
+}
